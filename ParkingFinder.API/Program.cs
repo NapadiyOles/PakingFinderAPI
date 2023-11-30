@@ -1,17 +1,46 @@
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
 using ParkingFinder.API.Filters;
-using ParkingFinder.Business.Utils;
+using ParkingFinder.Business.Injections;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
 builder.Services.AddControllers();
+builder.Services.AddLogging(b => b.AddConsole());
+
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(opt =>
+{
+    opt.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "JWT Authorization header using the Bearer scheme.",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT"
+    });
+    
+    opt.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
 
 var connection = builder.Configuration.GetConnectionString("ParkingDatabase")!;
 builder.Services.AddDatabase(connection);
@@ -37,7 +66,7 @@ builder.Services.AddAuthentication(cfg =>
     };
 });
 
-builder.Services.AddScoped<AuthExceptionFilters>();
+builder.Services.AddScoped<ExceptionFilter>();
 
 var app = builder.Build();
 

@@ -3,22 +3,26 @@ namespace ParkingFinder.Data.Entities;
 public enum ParkingStatus
 {
     Entering,
-    Exiting,
+    Leaving,
+    Booking,
     Unavailable
 }
 
 public record ParkingLog
 {
-    public ParkingLog(Guid spotId, DateTime time)
+    public ParkingLog(Guid userId, Guid spotId, DateTime reportTime, ParkingStatus status)
     {
-        ParkingSpotId = spotId;
-        Time = time;
+        SpotId = spotId;
+        ReportTime = reportTime;
+        Status = status;
+        UserId = userId;
     }
 
-    public Guid ParkingSpotId { get; set; }
+    public int Id { get; set; }
+    public Guid SpotId { get; set; }
     public ParkingSpot Spot { get; set; }
     public Guid UserId { get; set; }
     public User User { get; set; }
-    public DateTime Time { get; set; }
+    public DateTime ReportTime { get; set; }
     public ParkingStatus Status { get; set; }
 }

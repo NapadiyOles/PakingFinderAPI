@@ -4,6 +4,6 @@ namespace ParkingFinder.Business.Interfaces;
 
 public interface IAuthService
 {
-    Task RegisterAsync(UserDTO user);
-    Task<string> LogInAsync(UserDTO user);
+    Task<UserInfo> RegisterAsync(UserInfo user);
+    Task<UserInfo> LogInAsync(UserInfo user);
 }

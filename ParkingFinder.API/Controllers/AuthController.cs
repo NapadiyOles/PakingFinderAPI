@@ -9,7 +9,7 @@ namespace ParkingFinder.API.Controllers;
 
 [ApiController]
 [Route("authentication")]
-[AuthExceptionFilters]
+[ExceptionFilter]
 [AllowAnonymous]
 public class AuthController : ControllerBase
 {
@@ -23,28 +23,45 @@ public class AuthController : ControllerBase
     }
     
     [HttpPost("register")]
-    public async Task<ActionResult> Register([FromForm] UserRegisterModel model)
+    public async Task<ActionResult<UserTokenModel>> Register([FromForm] UserRegisterModel model)
     {
-        var user = new UserDTO(
-            name: model.Name,
+        var user = new UserInfo
+        {
+            Name = model.Name,
+            Email = model.Email,
+            Password = model.Password,
+        };
+        
+        var result = await _auth.RegisterAsync(user);
+        
+        var output = new UserTokenModel(
+            guid: result.Guid,
+            name: result.Name,
             email: model.Email,
-            password: model.Password
+            token: result.Token
         );
         
-        await _auth.RegisterAsync(user);
-        return Ok();
+        return Ok(output);
     }
 
     [HttpPost("login")]
-    public async Task<ActionResult<string>> LogIn([FromForm] UserLoginModel model)
+    public async Task<ActionResult<UserTokenModel>> LogIn([FromForm] UserLoginModel model)
     {
-        var user = new UserDTO(
-            name: default!,
+        var user = new UserInfo
+        {
+            Email = model.Email,
+            Password = model.Password,
+        };
+        
+        var result = await _auth.LogInAsync(user);
+
+        var output = new UserTokenModel(
+            guid: result.Guid,
+            name: result.Name,
             email: model.Email,
-            password: model.Password
+            token: result.Token
         );
         
-        var token = await _auth.LogInAsync(user);
-        return Ok(token);
+        return Ok(output);
     }
 }
