@@ -13,11 +13,12 @@ public static class ServiceCollectionExtensions
     {
         services.AddDbContext<Database>(opt => opt.UseSqlServer(connection));
     }
-
+    
     public static void AddServices(this IServiceCollection services)
     {
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IParkingService, ParkingService>();
+        services.AddHostedService<OccupationCalculationService>();
     }
 }

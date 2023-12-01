@@ -12,6 +12,8 @@ public class Database : DbContext
     public DbSet<ParkingLog> ParkingLogs { get; set; }
 
     public DbSet<ParkingTime> ParkingTimes { get; set; }
+
+    public DbSet<OccupationServiceProps> OccupationServiceProps { get; set; }
     
     public Database(DbContextOptions<Database> options) : base(options){}
 

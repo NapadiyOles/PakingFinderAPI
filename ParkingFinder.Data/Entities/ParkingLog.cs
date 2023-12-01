@@ -10,11 +10,9 @@ public enum ParkingStatus
 
 public record ParkingLog
 {
-    public ParkingLog(Guid userId, Guid spotId, DateTime reportTime, ParkingStatus status)
+    public ParkingLog(Guid userId, Guid spotId)
     {
         SpotId = spotId;
-        ReportTime = reportTime;
-        Status = status;
         UserId = userId;
     }
 
@@ -23,6 +21,7 @@ public record ParkingLog
     public ParkingSpot Spot { get; set; }
     public Guid UserId { get; set; }
     public User User { get; set; }
-    public DateTime ReportTime { get; set; }
+    public DateTime EnterTime { get; set; }
+    public DateTime LeaveTime { get; set; }
     public ParkingStatus Status { get; set; }
 }

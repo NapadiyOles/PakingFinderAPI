@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using ParkingFinder.Business.DTOs;
 using ParkingFinder.Business.Exceptions;
@@ -9,23 +10,19 @@ using ParkingFinder.Data.Entities;
 
 namespace ParkingFinder.Business.Services;
 
-public enum Mode
-{
-    Realtime,
-    Simulation
-}
-
 public class ParkingService : IParkingService
 {
     private readonly Database _database;
     private readonly ILogger<ParkingService> _logger;
-    private readonly Mode _mode;
+    private readonly IConfiguration _cfg;
+    private readonly TimeSpan _blockDuration;
 
-    public ParkingService(Database database, ILogger<ParkingService> logger, Mode mode = Mode.Realtime)
+    public ParkingService(Database database, ILogger<ParkingService> logger, IConfiguration cfg)
     {
         _database = database;
         _logger = logger;
-        _mode = mode;
+        _cfg = cfg;
+        _blockDuration = TimeSpan.FromMinutes(double.Parse(_cfg["Parking:BlockDuration"]!));
     }
 
     public async Task<IEnumerable<ParkingSpotInfo>> GetAllParkingSpots()
@@ -94,19 +91,20 @@ public class ParkingService : IParkingService
         
         const double radius = 6371008.8;
         const double convertD2R = Math.PI / 180.0;
-        var query = _database.ParkingSpots
-            .Where(e => !e.Occupied)
-            .OrderBy(e =>
-                e.OccupationRatio * Math.Sqrt(
-                    Math.Pow(
-                        (double)(cords.latitude - e.Latitude) * convertD2R * radius
-                        , 2)
-                    +
-                    Math.Pow(
-                        (double)(cords.longitude - e.Latitude) * convertD2R * radius *
-                        Math.Cos((double)(cords.latitude + e.Latitude) * convertD2R / 2.0)
-                        , 2))
-            );
+        var spot = await _database.ParkingSpots
+            .Where(s => !s.Occupied)
+            .Select(s => new
+            {
+                Spot = s,
+                Distance = Math.Sqrt(
+                    Math.Pow((double)(cords.latitude - s.Latitude) * convertD2R * radius, 2) +
+                    Math.Pow((double)(cords.longitude - s.Longitude) * convertD2R * radius *
+                             Math.Cos((double)(cords.latitude + s.Latitude) * convertD2R / 2.0), 2))
+            })
+            .OrderBy(t => t.Spot.OccupationRatio * t.Distance)
+            .ThenBy(t => t.Distance)
+            .Select(t => t.Spot)
+            .FirstOrDefaultAsync();
         
         // const double radius = 6371008.8;
         //
@@ -120,21 +118,27 @@ public class ParkingService : IParkingService
         //
         // double distance = Math.Sqrt(latDist * latDist + lonDist * lonDist);
         
-        _logger.LogDebug($"Suggest parking spot query:\n{query.ToQueryString()}");
-            
-        var spot = await query.FirstOrDefaultAsync();
-
         if (spot is null) throw new NotFoundException("All parking spots are occupied");
 
         spot.Occupied = true;
-
-        await RecordLogAsync(user.Id, spot.Id, ParkingStatus.Booking);
 
         var result = new ParkingSpotInfo(
             id: spot.Id,
             latitude: spot.Latitude,
             longitude: spot.Longitude
         );
+        
+        var log = new ParkingLog(
+            userId: user.Id,
+            spotId: spot.Id
+        )
+        {
+            Status = ParkingStatus.Booking,
+            EnterTime = Global.Time
+        };
+
+        await _database.ParkingLogs.AddAsync(log);
+        await _database.SaveChangesAsync();
         
         return result;
     }
@@ -151,9 +155,19 @@ public class ParkingService : IParkingService
     {
         var (spot, user) = await ValidateParkingAsync(userId, spotId);
 
-        if (!spot.Occupied) throw new OccupationException("The parking spot booking was not successful");
+        if (!spot.Occupied) throw new OccupationException("The booking was not successful");
 
-        await RecordLogAsync(user.Id, spot.Id, ParkingStatus.Entering);
+        var log = await _database.ParkingLogs
+            .Where(e => e.Status == ParkingStatus.Booking && e.SpotId == spot.Id)
+            .OrderByDescending(e => e.EnterTime)
+            .FirstOrDefaultAsync();
+        
+        if(log?.UserId != user.Id) throw new OccupationException("The booking was not successful");
+
+        log.Status = ParkingStatus.Entering;
+        log.EnterTime = Global.Time;
+
+        await _database.SaveChangesAsync();
     }
     
     /// <summary>
@@ -171,22 +185,24 @@ public class ParkingService : IParkingService
         
         if (!spot.Occupied) throw new OccupationException("This spot is currently not occupied");
 
-        var latest = _database.ParkingLogs
-            .Where(e => e.SpotId == spot.Id)
-            .OrderByDescending(e => e.ReportTime)
-            .FirstOrDefault();
+        var log = await _database.ParkingLogs
+            .Where(e => e.Status == ParkingStatus.Entering && e.SpotId == spot.Id)
+            .OrderByDescending(e => e.EnterTime)
+            .FirstOrDefaultAsync();
+            
+            
+        if (log is null) throw new NotFoundException("This spot has never been used for parking yet");
 
-        if (latest is null) throw new NotFoundException("This spot has never been used for parking yet");
-
-        if (latest.UserId != user.Id)
-            _logger.Log(
-                LogLevel.Critical,
-                $"The misallocation of the users occurred. Requested entering: {latest.UserId}, leaving {user.Id}"
+        if (log.UserId != user.Id)
+            _logger.Log(LogLevel.Critical,
+                $"The misallocation of the users occurred. Requested entering: {log.UserId}, leaving {user.Id}"
             );
 
         spot.Occupied = false;
+        log.Status = ParkingStatus.Leaving;
+        log.LeaveTime = Global.Time;
 
-        await RecordLogAsync(user.Id, spot.Id, ParkingStatus.Leaving);
+        await _database.SaveChangesAsync();
     }
 
     /// <summary>
@@ -205,7 +221,20 @@ public class ParkingService : IParkingService
         
         spot.Occupied = true;
 
-        await RecordLogAsync(user.Id, spot.Id, ParkingStatus.Unavailable);
+        var time = Global.Time;
+
+        var log = new ParkingLog(
+            userId: user.Id,
+            spotId: spot.Id
+        )
+        {
+            Status = ParkingStatus.Unavailable,
+            EnterTime = time,
+            LeaveTime = time + _blockDuration
+        };
+        
+        await _database.ParkingLogs.AddAsync(log);
+        await _database.SaveChangesAsync();
     }
 
     /// <summary>
@@ -224,14 +253,24 @@ public class ParkingService : IParkingService
         if (spot.Occupied) throw new OccupationException("Requested parking spot is currently occupied");
 
         spot.Occupied = true;
-
-        await RecordLogAsync(user.Id, spot.Id, ParkingStatus.Booking);
         
         var result = new ParkingSpotInfo(
             id: spot.Id,
             latitude: spot.Latitude,
             longitude: spot.Longitude
         );
+        
+        var log = new ParkingLog(
+            userId: user.Id,
+            spotId: spot.Id
+        )
+        {
+            Status = ParkingStatus.Booking,
+            EnterTime = Global.Time
+        };
+
+        await _database.ParkingLogs.AddAsync(log);
+        await _database.SaveChangesAsync();
         
         return result;
     }
@@ -251,23 +290,5 @@ public class ParkingService : IParkingService
             throw new NotFoundException("Parking spot with current Id was not found");
         
         return (spot, user);
-    }
-    
-    private async Task RecordLogAsync(Guid user, Guid spot, ParkingStatus status)
-    {
-        var log = new ParkingLog(
-            userId: user,
-            spotId: spot,
-            reportTime: _mode switch
-            {
-                Mode.Realtime => DateTime.Now,
-                Mode.Simulation => Global.Time,
-                _ => default
-            },
-            status: status
-        );
-
-        await _database.ParkingLogs.AddAsync(log);
-        await _database.SaveChangesAsync();
     }
 }
