@@ -1,6 +1,6 @@
 ﻿namespace ParkingFinder.Business.DTOs;
 
-public record UserInfo
+public class UserInfo
 {
     public string Guid { get; init; }
     public string Name { get; init; }

@@ -1,6 +1,6 @@
 ﻿namespace ParkingFinder.Data.Entities;
 
-public record ParkingSpot
+public class ParkingSpot
 {
     public ParkingSpot(decimal latitude, decimal longitude)
     {

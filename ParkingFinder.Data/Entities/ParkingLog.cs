@@ -1,14 +1,6 @@
 namespace ParkingFinder.Data.Entities;
 
-public enum ParkingStatus
-{
-    Entering,
-    Leaving,
-    Booking,
-    Unavailable
-}
-
-public record ParkingLog
+public class ParkingLog
 {
     public ParkingLog(Guid userId, Guid spotId)
     {

@@ -1,8 +1,8 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using ParkingFinder.Business.Interfaces;
 using ParkingFinder.Business.Services;
+using ParkingFinder.Business.Utils;
 using ParkingFinder.Data;
 
 namespace ParkingFinder.Business.Injections;
@@ -20,5 +20,6 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IParkingService, ParkingService>();
         services.AddHostedService<OccupationCalculationService>();
+        // services.AddHostedService<LogManagementService>();
     }
 }

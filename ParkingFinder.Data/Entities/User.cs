@@ -1,6 +1,6 @@
 namespace ParkingFinder.Data.Entities;
 
-public record User
+public class User
 {
     public User(string name, string email, string role, string password)
     {

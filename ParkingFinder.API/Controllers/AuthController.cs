@@ -23,7 +23,7 @@ public class AuthController : ControllerBase
     }
     
     [HttpPost("register")]
-    public async Task<ActionResult<UserTokenModel>> Register([FromForm] UserRegisterModel model)
+    public async Task<ActionResult<UserTokenModel>> Register(UserRegisterModel model)
     {
         var user = new UserInfo
         {
@@ -45,7 +45,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("login")]
-    public async Task<ActionResult<UserTokenModel>> LogIn([FromForm] UserLoginModel model)
+    public async Task<ActionResult<UserTokenModel>> LogIn(UserLoginModel model)
     {
         var user = new UserInfo
         {

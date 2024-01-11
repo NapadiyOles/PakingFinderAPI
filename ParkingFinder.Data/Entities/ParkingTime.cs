@@ -1,8 +1,8 @@
 ﻿namespace ParkingFinder.Data.Entities;
 
-public record ParkingTime
+public class ParkingTime
 {
-    public ParkingTime(Guid spotId, TimeSpan duration, DateTime recordTime)
+    public ParkingTime(Guid spotId, long duration, DateTime recordTime)
     {
         SpotId = spotId;
         Duration = duration;
@@ -12,6 +12,6 @@ public record ParkingTime
     public int Id { get; set; }
     public Guid SpotId { get; set; }
     public ParkingSpot Spot { get; set; }
-    public TimeSpan Duration { get; set; }
+    public long Duration { get; set; }
     public DateTime RecordTime { get; set; }
 }

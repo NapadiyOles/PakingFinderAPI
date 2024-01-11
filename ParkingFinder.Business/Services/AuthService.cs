@@ -22,7 +22,6 @@ public class AuthService : IAuthService
     {
         _database = database;
         _config = config;
-        
         CheckAndAddDefaultAdmin();
     }
 

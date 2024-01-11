@@ -1,5 +1,4 @@
 ﻿using ParkingFinder.Business.DTOs;
-using ParkingFinder.Business.Utils;
 
 namespace ParkingFinder.Business.Interfaces;
 

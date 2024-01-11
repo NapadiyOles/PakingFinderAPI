@@ -65,10 +65,9 @@ public class ParkingSpotController : ControllerBase
 
     [HttpPut("suggest")]
     [Authorize(Roles = Role.User)]
-    public async Task<ActionResult<ParkingSpotModel>> SuggestParkingSpot(Coordinates cords, string userId)
+    public async Task<ActionResult<ParkingSpotModel>> SuggestParkingSpot(UserCoordinates cords)
     {
-        _logger.LogInformation("Parking spot suggestion was requested");
-        var spot = await _service.SuggestParkingSpot((cords.Latitude, cords.Longitude), userId);
+        var spot = await _service.SuggestParkingSpot((cords.Latitude, cords.Longitude), cords.UserId, DateTime.Now);
         
         var result = new ParkingSpotModel(
             id: spot.Id,
@@ -83,7 +82,7 @@ public class ParkingSpotController : ControllerBase
     [Authorize(Roles = Role.User)]
     public async Task<ActionResult<ParkingSpotModel>> CheckFavourite(ReportModel report)
     {
-        var spot = await _service.CheckFavouriteSpot(report.UserId, report.SpotId);
+        var spot = await _service.CheckFavouriteSpot(report.UserId, report.SpotId, DateTime.Now);
 
         var result = new ParkingSpotModel(
             id: spot.Id,
@@ -96,25 +95,25 @@ public class ParkingSpotController : ControllerBase
 
     [HttpPost("enter")]
     [Authorize(Roles = Role.User)]
-    public async Task<ActionResult> ReportEntering(ReportModel report)
+    public async Task<ActionResult<Result>> ReportEntering(ReportModel report)
     {
-        await _service.ReportParking(report.UserId, report.SpotId);
-        return Ok();
+        await _service.ReportParking(report.UserId, report.SpotId, DateTime.Now);
+        return Ok(new Result("Entering"));
     } 
     
     [HttpPost("leave")]
     [Authorize(Roles = Role.User)]
-    public async Task<ActionResult> ReportLeaving(ReportModel report)
+    public async Task<ActionResult<Result>> ReportLeaving(ReportModel report)
     {
-        await _service.ReportLeaving(report.UserId, report.SpotId);
-        return Ok();
+        await _service.ReportLeaving(report.UserId, report.SpotId, DateTime.Now);
+        return Ok(new Result("Leaving"));
     } 
     
     [HttpPost("block")]
     [Authorize(Roles = Role.User)]
-    public async Task<ActionResult> ReportBlocking(ReportModel report)
+    public async Task<ActionResult<Result>> ReportBlocking(ReportModel report)
     {
-        await _service.ReportBlocking(report.UserId, report.SpotId);
-        return Ok();
+        await _service.ReportBlocking(report.UserId, report.SpotId, DateTime.Now);
+        return Ok(new Result("Blocking"));
     } 
 }

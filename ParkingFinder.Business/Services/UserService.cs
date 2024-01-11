@@ -50,8 +50,8 @@ public class UserService : IUserService
         if (user is null)
             throw new UnauthorizedException("User with this email is not registered");
 
-        if (user.Role == role.ToString())
-            throw new RoleException($"The user is already {role.ToString()}");
+        if (user.Role == role)
+            throw new RoleException($"The user is already {role}");
 
         user.Role = role;
         

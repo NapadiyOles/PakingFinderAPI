@@ -11,8 +11,8 @@ public static class Distance
 
         var latAvg = lat2 + lat1 / 2;
 
-        var latDist = (double)latDiff * radius;
-        var lonDist = (double)lonDiff * radius * Math.Cos((double)latAvg);
+        var latDist = latDiff * radius;
+        var lonDist = lonDiff * radius * Math.Cos(latAvg);
         
         double distance = Math.Sqrt(latDist * latDist + lonDist * lonDist);
 

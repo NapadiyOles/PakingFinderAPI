@@ -22,33 +22,32 @@ public class OccupationCalculationService : BackgroundService
         _logger = logger;
         _serviceProvider = serviceProvider;
         _delay = TimeSpan.FromMinutes(double.Parse(cfg["Parking:OccupationServiceDelay"]!));
-        _logic = new OccupationCalculationLogic(_delay, int.Parse(cfg["Parking:MovingNumber"]!));
+        _logic = new OccupationCalculationLogic(_delay, int.Parse(cfg["Parking:SpotsToTake"]!));
         _props = InitProps();
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("Starting occupation calculation service");
-        var startDelay = (int)(_delay - _props.OnResumeTime).TotalMilliseconds;
-        await Task.Delay(startDelay, stoppingToken);
+        _props.FinishTime = DateTime.Now - TimeSpan.FromTicks(_props.OnResumeTime);
+        var startDelay = (int)(_delay - TimeSpan.FromTicks(_props.OnResumeTime)).TotalMilliseconds;
+        await Task.Delay(startDelay > 0 ? startDelay : 0, stoppingToken);
         while (!stoppingToken.IsCancellationRequested)
         {
-            _logger.LogWarning("Starting occupation calculation process");
             _props.StartTime = DateTime.Now;
+            _logger.LogWarning("Starting occupation calculation process");
             using var scope = _serviceProvider.CreateScope();
             var database = scope.ServiceProvider.GetRequiredService<Database>();
             
+            _props.TotalTime += _delay.Ticks;
             await _logic.ReportTimeDurationAsync(database, _props.StartTime);
-            await _logic.CalculateSimpleOccupationAsync(database, _props.TotalTime);
-
-            _props.TotalTime += _delay;
+            await _logic.CalculateSimpleOccupationAsync(database, TimeSpan.FromTicks(_props.TotalTime));
             _props.FinishTime = DateTime.Now;
+
             _logger.LogInformation("Finished occupation calculation process");
             var delay = (int)(_delay - (_props.FinishTime - _props.StartTime)).TotalMilliseconds;
-            await Task.Delay(delay < 0 ? 0 : delay, stoppingToken);
+            await Task.Delay(delay > 0 ? delay : 0, stoppingToken);
         }
-
-        _props.OnResumeTime = DateTime.Now - _props.FinishTime;
     }
 
     public override Task StopAsync(CancellationToken cancellationToken)
@@ -58,6 +57,7 @@ public class OccupationCalculationService : BackgroundService
         using var scope = _serviceProvider.CreateScope();
         var database = scope.ServiceProvider.GetRequiredService<Database>();
 
+        _props.OnResumeTime = (DateTime.Now - _props.FinishTime).Ticks;
         database.OccupationServiceProps.Update(_props);
         database.SaveChanges();
         
@@ -75,8 +75,8 @@ public class OccupationCalculationService : BackgroundService
 
         var props = new OccupationServiceProps
         {
-            TotalTime = TimeSpan.Zero,
-            OnResumeTime = TimeSpan.Zero,
+            TotalTime = 0,
+            OnResumeTime = 0,
             StartTime = DateTime.Now,
             FinishTime = DateTime.Now
         };
@@ -91,18 +91,17 @@ public class OccupationCalculationService : BackgroundService
 public class OccupationCalculationLogic
 {
     private readonly TimeSpan _delay;
-    private readonly int _movingNumber;
+    private readonly int _spotsToTake;
     
-    public OccupationCalculationLogic(TimeSpan delay, int movingNumber)
+    public OccupationCalculationLogic(TimeSpan delay, int spotsToTake)
     {
         _delay = delay;
-        _movingNumber = movingNumber;
+        _spotsToTake = spotsToTake;
     }
     
     public async Task ReportTimeDurationAsync(Database database, DateTime currentTime)
     {
         var spots = await database.ParkingSpots.ToListAsync();
-        var times = new List<ParkingTime>(spots.Count);
 
         foreach (var spot in spots)
         {
@@ -116,16 +115,7 @@ public class OccupationCalculationLogic
                 switch (log.Status)
                 {
                     case ParkingStatus.Entering:
-                        duration += currentTime - log.EnterTime;
-                        log.EnterTime = currentTime;
-                        break;
-                    
-                    case ParkingStatus.Leaving:
-                        duration += log.LeaveTime - log.EnterTime;
-                        database.Remove(log);
-                        break;
-                    
-                    case ParkingStatus.Unavailable:
+                    {
                         if (log.LeaveTime - log.EnterTime > _delay)
                         {
                             duration += currentTime - log.EnterTime;
@@ -133,26 +123,53 @@ public class OccupationCalculationLogic
                             break;
                         }
                         
-                        duration += log.LeaveTime - log.EnterTime;
-                        database.Remove(log);
+                        if (log.LeaveTime > log.EnterTime)
+                            duration += log.LeaveTime - log.EnterTime;
                         
+                        database.ParkingLogs.Remove(log);
                         spot.Occupied = false;
-                        break;                        
-                }
+                        break;
+                    }
 
-                await database.SaveChangesAsync();
+                    case ParkingStatus.Leaving:
+                    {
+                        if(log.LeaveTime > log.EnterTime)
+                            duration += log.LeaveTime - log.EnterTime;
+                        
+                        database.ParkingLogs.Remove(log);
+                        break;
+                    }
+
+                    case ParkingStatus.Unavailable:
+                    {
+                        if (log.LeaveTime - log.EnterTime > _delay)
+                        {
+                            duration += currentTime - log.EnterTime;
+                            log.EnterTime = currentTime;
+                            break;
+                        }
+
+                        if (log.LeaveTime > log.EnterTime)
+                            duration += log.LeaveTime - log.EnterTime;
+
+                        database.ParkingLogs.Remove(log);
+                        spot.Occupied = false;
+                        break;
+                    }
+                }
             }
 
+            // if (duration > _delay) duration = _delay;
+            
             var time = new ParkingTime(
                 spotId: spot.Id,
-                duration: duration,
+                duration: duration.Ticks,
                 recordTime: currentTime
             );
             
-            times.Add(time);
+            await database.ParkingTimes.AddAsync(time);
         }
-
-        await database.ParkingTimes.AddRangeAsync(times);
+        
         await database.SaveChangesAsync();
     }
     
@@ -168,9 +185,8 @@ public class OccupationCalculationLogic
                 .FirstOrDefaultAsync();
             
             var ratio = spot.OccupationRatio;
-
-            spot.OccupationRatio = (ratio * totalTime.TotalMilliseconds + time?.Duration.TotalMilliseconds ?? 0) /
-                                   (totalTime + _delay).TotalMilliseconds;
+            spot.OccupationRatio = (ratio * totalTime.TotalSeconds + TimeSpan.FromTicks(time?.Duration ?? 0).TotalSeconds) /
+                                    (totalTime + _delay).TotalSeconds;
         }
 
         await database.SaveChangesAsync();
@@ -182,16 +198,11 @@ public class OccupationCalculationLogic
 
         foreach (var spot in spots)
         {
-            if (await database.ParkingTimes.CountAsync(t => t.SpotId == spot.Id) < _movingNumber)
-                continue;
-            
-            spot.OccupationRatio = await database.ParkingTimes
-                .Where(t => t.SpotId == spot.Id)
-                .OrderByDescending(t => t.RecordTime)
-                .Take(_movingNumber)
-                .SumAsync(t => t.Duration.TotalMilliseconds) / (_movingNumber * _delay).TotalMilliseconds;
+            var times = await TakeParkingTimes(database, spot);
+            var sum = times.Sum(t => TimeSpan.FromTicks(t.Duration).TotalSeconds);
+            spot.OccupationRatio = times.Count > 0 ? sum / (times.Count * _delay.TotalSeconds) : 0.5;
         }
-
+        
         await database.SaveChangesAsync();
     }
 
@@ -201,20 +212,25 @@ public class OccupationCalculationLogic
 
         foreach (var spot in spots)
         {
-            if (await database.ParkingTimes.CountAsync(t => t.SpotId == spot.Id) < _movingNumber)
-                continue;
-            
-            spot.OccupationRatio = await database.ParkingTimes
-                .Where(t => t.SpotId == spot.Id)
-                .OrderByDescending(t => t.RecordTime)
-                .Take(_movingNumber)
+            var times = await TakeParkingTimes(database, spot);
+            var sum = times
                 .Select((t, i) => new
-                {
-                    WeightedDuration = (_movingNumber - i) * t.Duration.TotalMilliseconds
-                })
-                .SumAsync(t => t.WeightedDuration) / (_movingNumber * (_movingNumber + 1) * _delay / 2.0).TotalMilliseconds;
+                    { WeightedDuration = (times.Count - i) * TimeSpan.FromTicks(t.Duration).TotalSeconds })
+                .Sum(t => t.WeightedDuration);
+            spot.OccupationRatio =
+                times.Count > 0 ? sum / (times.Count * (times.Count + 1) * _delay.TotalSeconds / 2.0) : 0.5;
         }
 
         await database.SaveChangesAsync();
+    }
+
+    private Task<List<ParkingTime>> TakeParkingTimes(Database database, ParkingSpot spot)
+    {
+        var times = database.ParkingTimes.Where(t => t.SpotId == spot.Id);
+        var ordered = times.OrderByDescending(t => t.RecordTime)
+            .Take(_spotsToTake)
+            .ToListAsync();
+
+        return ordered;
     }
 }

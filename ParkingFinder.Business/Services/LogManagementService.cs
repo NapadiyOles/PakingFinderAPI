@@ -29,13 +29,13 @@ public class LogManagementService : BackgroundService
         await Task.Delay(_delay, stoppingToken);
         while (!stoppingToken.IsCancellationRequested)
         {
-            _startTime = DateTime.Now;
             using var scope = _serviceProvider.CreateScope();
             var database = scope.ServiceProvider.GetRequiredService<Database>();
 
+            _startTime = DateTime.Now;
             await _logic.DeleteBookingLogsAsync(database, _startTime);
-            
             _finishTime = DateTime.Now;
+            
             var delay = (int)(_delay - (_finishTime - _startTime)).TotalMilliseconds;
             await Task.Delay(delay < 0 ? 0 : delay, stoppingToken);
         }
@@ -51,10 +51,38 @@ public class LogManagementLogic
         _delay = delay;
     }
 
-    public async Task DeleteBookingLogsAsync(Database database, DateTime currentTime)
+    public async Task DeleteBookingLogsAsync(Database database, DateTime current)
     {
-        await database.ParkingLogs
-            .Where(l => l.Status == ParkingStatus.Booking && currentTime - l.EnterTime > _delay)
-            .ExecuteDeleteAsync();
+        var threshold = current - _delay;
+        var logs = await database.ParkingLogs
+            .Where(l => l.Status == ParkingStatus.Booking && l.EnterTime < threshold)
+            .Include(l => l.Spot)
+            .ToListAsync();
+
+        foreach (var log in logs)
+        {
+            log.Spot.Occupied = false;
+        }
+        await database.SaveChangesAsync();
+
+        database.ParkingLogs.RemoveRange(logs);
+        await database.SaveChangesAsync();
+    }
+
+    public async Task DeleteExpiredBlockingLogs(Database database, DateTime current)
+    {
+        var threshold = current - _delay;
+        var logs = await database.ParkingLogs
+            .Where(l => l.Status == ParkingStatus.Unavailable && l.LeaveTime < threshold)
+            .Include(l => l.Spot)
+            .ToListAsync();
+
+        foreach (var log in logs)
+        {
+            log.Spot.Occupied = false;
+        }
+
+        database.ParkingLogs.RemoveRange(logs);
+        await database.SaveChangesAsync();
     }
 }
